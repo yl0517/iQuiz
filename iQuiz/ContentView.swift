@@ -40,7 +40,7 @@ class QuizData: ObservableObject {
     @Published var topics: [QuizTopic] = []
     @Published var questionsMap: [String: [Question]] = [:]
     @Published var networkError: String?
-
+    
     @AppStorage("quizSourceURL") var sourceURL: String = defaultURL
     @Published var refreshInterval: Int = UserDefaults.standard.integer(forKey: "refreshInterval") {
         didSet {
@@ -48,13 +48,14 @@ class QuizData: ObservableObject {
             scheduleTimer()
         }
     }
-
+    
     private var timerCancellable: AnyCancellable?
-
+    
     init() {
+        loadCachedQuizzes()
         scheduleTimer()
     }
-
+    
     func fetchQuizzes() {
         guard let url = URL(string: sourceURL) else {
             networkError = "Invalid URL: \(sourceURL)"
@@ -72,28 +73,35 @@ class QuizData: ObservableObject {
                 }
                 do {
                     let remote = try JSONDecoder().decode([RemoteQuiz].self, from: data)
+
                     self.topics = remote.map { quiz in
-                        QuizTopic(title: quiz.title,
-                                  description: quiz.desc,
-                                  iconName: self.iconName(for: quiz.title))
+                        QuizTopic(
+                            title: quiz.title,
+                            description: quiz.desc,
+                            iconName: self.iconName(for: quiz.title)
+                        )
                     }
                     var newMap: [String: [Question]] = [:]
                     for quiz in remote {
-                        newMap[quiz.title] = quiz.questions.map { rq in
-                            let idx = Int(rq.answer) ?? 0
-                            return Question(text: rq.text,
-                                            options: rq.answers,
-                                            correctIndex: idx)
+                        let items = quiz.questions.map { rq in
+                            Question(
+                                text: rq.text,
+                                options: rq.answers,
+                                correctIndex: Int(rq.answer) ?? 0
+                            )
                         }
+                        newMap[quiz.title] = items
                     }
                     self.questionsMap = newMap
+                    
+                    self.saveCache(data)
                 } catch {
                     self.networkError = error.localizedDescription
                 }
             }
         }.resume()
     }
-
+    
     private func scheduleTimer() {
         timerCancellable?.cancel()
         guard refreshInterval > 0 else { return }
@@ -101,7 +109,7 @@ class QuizData: ObservableObject {
             .autoconnect()
             .sink { _ in self.fetchQuizzes() }
     }
-
+    
     private func iconName(for title: String) -> String {
         switch title {
         case "Mathematics": return "function"
@@ -110,38 +118,82 @@ class QuizData: ObservableObject {
         default: return "questionmark.circle"
         }
     }
+    
+    // 1. Compute a file URL in Documents/quizzes.json
+    private var cacheURL: URL {
+        FileManager.default
+            .urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("quizzes.json")
+    }
+    
+    // 2. Load from that file at startup
+    private func loadCachedQuizzes() {
+        guard let data = try? Data(contentsOf: cacheURL) else { return }
+        do {
+            let remote = try JSONDecoder().decode([RemoteQuiz].self, from: data)
+            // map RemoteQuiz → QuizTopic
+            self.topics = remote.map { quiz in
+                QuizTopic(
+                    title: quiz.title,
+                    description: quiz.desc,
+                    iconName: iconName(for: quiz.title)
+                )
+            }
+            // map RemoteQuiz.questions → [Question]
+            var newMap: [String: [Question]] = [:]
+            for quiz in remote {
+                let items = quiz.questions.map { rq in
+                    Question(
+                        text: rq.text,
+                        options: rq.answers,
+                        correctIndex: Int(rq.answer) ?? 0
+                    )
+                }
+                newMap[quiz.title] = items
+            }
+            self.questionsMap = newMap
+        } catch {
+            print("Cache decode failed:", error)
+        }
+    }
+    
+    // 3. Save the raw JSON to that file after a successful fetch
+    private func saveCache(_ data: Data) {
+        try? data.write(to: cacheURL)
+    }
 }
 
 struct ContentView: View {
     @StateObject private var data = QuizData()
     @State private var showingSettings = false
     @State private var showingErrorAlert = false
-
+    
     var body: some View {
         NavigationView {
             List(data.topics, id: \.self) { topic in
                 NavigationLink(destination: QuizView(topic: topic)
-                                .environmentObject(data)) {
-                    QuizRow(topic: topic)
-                }
+                    .environmentObject(data)) {
+                        QuizRow(topic: topic)
+                    }
             }
             .navigationTitle("Quizzes")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { showingSettings = true } label: {
+                    Button {
+                        if let settingsURL = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(settingsURL)
+                        }
+                    } label: {
                         Image(systemName: "gearshape")
                     }
                 }
-            }
-            .sheet(isPresented: $showingSettings) {
-                SettingsView(data: data)
             }
             .refreshable { data.fetchQuizzes() }
             .onReceive(data.$networkError) { err in showingErrorAlert = (err != nil) }
             .alert("Network Error", isPresented: $showingErrorAlert, presenting: data.networkError) { _ in
                 Button("OK") { data.networkError = nil }
             } message: { msg in Text(msg) }
-            .onAppear { data.fetchQuizzes() }
+                .onAppear { data.fetchQuizzes() }
         }
     }
 }
@@ -150,7 +202,7 @@ struct SettingsView: View {
     @Environment(\.presentationMode) var presentationMode
     @ObservedObject var data: QuizData
     @State private var intervalText: String = ""
-
+    
     var body: some View {
         NavigationView {
             Form {
@@ -202,9 +254,9 @@ struct QuizView: View {
     @State private var selectedOption: Int? = nil
     @State private var score = 0
     @State private var showAnswer = false
-
+    
     var questions: [Question] { data.questionsMap[topic.title] ?? [] }
-
+    
     var body: some View {
         VStack {
             if currentIndex < questions.count {
@@ -222,7 +274,7 @@ struct QuizView: View {
             }
         }
     }
-
+    
     var questionScene: some View {
         VStack(spacing: 20) {
             Text(questions[currentIndex].text).font(.title2)
@@ -243,7 +295,7 @@ struct QuizView: View {
                 })
         }
     }
-
+    
     var answerScene: some View {
         VStack(spacing: 20) {
             Text(questions[currentIndex].text).font(.title2)
@@ -257,7 +309,7 @@ struct QuizView: View {
                 })
         }
     }
-
+    
     var finishedScene: some View {
         VStack(spacing: 20) {
             Text(resultText).font(.largeTitle)
@@ -266,19 +318,19 @@ struct QuizView: View {
                 .padding(.top)
         }
     }
-
+    
     private func submitAnswer() {
         guard let choice = selectedOption else { return }
         if choice == questions[currentIndex].correctIndex { score += 1 }
         showAnswer = true
     }
-
+    
     private func advance() {
         currentIndex += 1
         selectedOption = nil
         showAnswer = false
     }
-
+    
     private var resultText: String {
         switch score {
         case questions.count: return "Perfect"
@@ -287,9 +339,9 @@ struct QuizView: View {
         }
     }
 }
-
-struct ContentView_Previews: PreviewProvider {
-    static var previews: some View {
-        ContentView()
-    }
-}
+//
+//struct ContentView_Previews: PreviewProvider {
+//    static var previews: some View {
+//        ContentView()
+//    }
+//}
