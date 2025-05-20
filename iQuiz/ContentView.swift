@@ -42,11 +42,8 @@ class QuizData: ObservableObject {
     @Published var networkError: String?
     
     @AppStorage("quizSourceURL") var sourceURL: String = defaultURL
-    @Published var refreshInterval: Int = UserDefaults.standard.integer(forKey: "refreshInterval") {
-        didSet {
-            UserDefaults.standard.set(refreshInterval, forKey: "refreshInterval")
-            scheduleTimer()
-        }
+    @AppStorage("refreshInterval") var refreshInterval: Int = 0 {
+        didSet { scheduleTimer() }
     }
     
     private var timerCancellable: AnyCancellable?
@@ -73,7 +70,7 @@ class QuizData: ObservableObject {
                 }
                 do {
                     let remote = try JSONDecoder().decode([RemoteQuiz].self, from: data)
-
+                    
                     self.topics = remote.map { quiz in
                         QuizTopic(
                             title: quiz.title,

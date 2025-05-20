@@ -10,6 +10,18 @@
 			<key>Type</key>
 			<string>PSTextFieldSpecifier</string>
 			<key>Title</key>
+			<string>Refresh Interval</string>
+			<key>Key</key>
+			<string>refreshInterval</string>
+			<key>DefaultValue</key>
+			<string>0</string>
+			<key>KeyboardType</key>
+			<string>NumberPad</string>
+		</dict>
+		<dict>
+			<key>Type</key>
+			<string>PSTextFieldSpecifier</string>
+			<key>Title</key>
 			<string>Quiz JSON URL</string>
 			<key>Key</key>
 			<string>quizSourceURL</string>
